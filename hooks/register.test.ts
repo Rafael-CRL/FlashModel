@@ -4,7 +4,7 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 const OPTIONS = ['default', 'sonnet', 'opus', 'haiku', 'fable', 'best', 'sonnet[1m]', 'opusplan']
 const CYCLE = ['sonnet', 'opus', 'haiku', 'fable']
 
-function world(on: any, start: string) {
+function world(on: any, start: string, refuse = '') {
   const state = { model: `claude-${start}-9`, asked: [] as string[], toasts: [] as string[] }
   on('config.list', async () => ({
     value: [{ key: 'model', label: 'Model', kind: 'choice', value: 'x', options: OPTIONS }],
@@ -16,7 +16,7 @@ function world(on: any, start: string) {
   })
   on('command.run', { command: 'model' }, async (_$: any, e: any) => {
     state.asked.push(e.args)
-    state.model = `claude-${e.args}-9`
+    if (e.args !== refuse) state.model = `claude-${e.args}-9`
     return {}
   })
   return state
@@ -76,6 +76,21 @@ describe('/m', () => {
     await $.command.run({ command: 'm', args: 'haiku' })
     await clock.settle()
     expect(s.asked).toEqual(['haiku'])
+  })
+
+  test('a refused model is skipped, now and on later presses', async ($, on) => {
+    const clock = mock.clock(on)
+    const s = world(on, 'haiku', 'fable')
+    await $.command.run({ command: 'm' })
+    await clock.settle()
+    expect(s.asked).toEqual(['fable', 'sonnet'])
+    expect(s.toasts).toEqual(['Model → sonnet (claude-sonnet-9)'])
+
+    s.model = 'claude-haiku-9'
+    s.asked.length = 0
+    await $.command.run({ command: 'm' })
+    await clock.settle()
+    expect(s.asked).toEqual(['sonnet'])
   })
 
   test('an unchanged model is reported, not announced as a switch', async ($, on) => {

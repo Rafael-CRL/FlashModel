@@ -1,0 +1,8 @@
+{
+  "name": "flashmodel",
+  "description": "FlashModel: fast Claude model switching",
+  "owner": { "name": "Rafael Lobato" },
+  "plugins": [
+    { "name": "flashmodel", "source": "./", "description": "Cycle Claude models with one short command: /m" }
+  ]
+}

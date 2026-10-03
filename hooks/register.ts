@@ -4,6 +4,9 @@ import type { Register } from 'claude-code'
 const SKIP = /^(default|best|opusplan)$|\[1m\]$/
 
 export const register: Register = on => {
+  // Models /model refused this session (no access, or a one-time consent pending).
+  const refused = new Set<string>()
+
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'm',
@@ -20,14 +23,20 @@ export const register: Register = on => {
     if (models.length === 0) return { text: 'FlashModel: no models to cycle through.' }
 
     const before = await $.session.model()
-    const target = (e.args ?? '').trim() || models[(models.findIndex(m => before.includes(m)) + 1) % models.length]
+    const asked = (e.args ?? '').trim()
+    const from = models.findIndex(m => before.includes(m))
+    const queue = asked ? [asked] : models.map((_, i) => models[(from + 1 + i) % models.length])
 
     // /model cannot run inside this hook (it would wait on this very command):
     // queue it, then confirm with a toast once the session has switched.
     $.clock.after(0, async () => {
-      await $.command.run({ command: 'model', args: target })
-      const now = await $.session.model()
-      $.ui.toast(now === before ? `Model unchanged: ${now}` : `Model → ${target} (${now})`)
+      for (const target of queue.filter(m => asked || !refused.has(m))) {
+        await $.command.run({ command: 'model', args: target })
+        const now = await $.session.model()
+        if (now !== before) return $.ui.toast(`Model → ${target} (${now})`)
+        refused.add(target)
+      }
+      $.ui.toast(`Model unchanged: ${before}`)
     })
     return {}
   })

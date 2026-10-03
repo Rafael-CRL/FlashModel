@@ -1,7 +1,9 @@
 {
   "name": "flashmodel",
+  "displayName": "FlashModel",
   "version": "0.1.0",
   "description": "Cycle Claude models with one short command: /m",
   "author": { "name": "Rafael Lobato" },
-  "license": "MIT"
+  "license": "MIT",
+  "keywords": ["model", "switch", "productivity"]
 }

@@ -1,16 +1,17 @@
 # FlashModel
 
 A compact model and effort switcher for Claude Code. One row above the prompt
-shows the models and effort levels you can use and marks the ones in force.
-Click any of them to switch:
+shows the models you can use and the effort in force. Click to switch:
 
 ```text
-Model  Haiku │ Sonnet │ Opus    Effort  low │ medium │ high │ xhigh │ max
+Model  Haiku │ Sonnet │ Opus    Effort  ━━━━──────  medium
 ```
 
-The active model and effort are bold in the accent color; the rest are dim
-until you hover or focus them. No command to type, no picker to open, and both
-settings are visible at all times. `/m` remains as a keyboard fallback.
+The active model and the effort level are bold; everything else is dim until
+you hover or focus it. Effort is a slider, like the one in Claude Code's model
+picker: each cell is one level (low, medium, high, xhigh, max), and clicking a
+cell sets that level. No command to type, no picker to open, and both settings
+stay visible. `/m` remains as a keyboard fallback.
 
 ## Install
 
@@ -25,8 +26,9 @@ Try it without installing: `claude --plugin-dir /path/to/FlashModel`.
 
 | Do this | Result |
 | --- | --- |
-| Click a model or an effort level | Switches to it |
-| `Ctrl+X` `Tab`, then `Tab` to a segment and `Enter` | Switches to it; `Esc` returns to the prompt |
+| Click a model | Switches to it |
+| Click a cell of the effort slider | Sets that level |
+| `Ctrl+X` `Tab`, then `Tab` to a model or slider cell and `Enter` | Same as a click; `Esc` returns to the prompt |
 | `/m` | Switches to the next model: Haiku → Sonnet → Opus → Haiku |
 | `/m <model>` | Switches to that model (any alias or id, Fable included) |
 | `/m <effort>` | Sets the effort: `low`, `medium`, `high`, `xhigh` or `max` |
@@ -35,8 +37,8 @@ Try it without installing: `claude --plugin-dir /path/to/FlashModel`.
 While Claude is working, a model you pick shows in italics with `…` until
 Claude Code applies it at the end of the turn. The row also updates when you
 change the model or effort elsewhere: `/model`, the model picker, or `/effort`.
-It makes way for surveys, and `Ctrl+X Ctrl+A` collapses it. In a narrow
-terminal, Effort wraps onto a second row.
+It makes way for surveys, and `Ctrl+X Ctrl+A` collapses it. When one row does
+not fit, Effort moves to a second row.
 
 ### Models
 
@@ -53,8 +55,8 @@ terminal, Effort wraps onto a second row.
 
 ### Effort
 
-- The levels shown are the ones the active model takes. Haiku takes none and
-  shows `Effort n/a`.
+- The slider has one cell per level the active model takes. Haiku takes none
+  and shows `Effort n/a`.
 - **Session-only, and never saved.** `/effort <level>` saves the level as the
   model's default, so FlashModel does not run it. Instead, it sends your chosen
   level with each request of the main conversation. Subagents keep their own

@@ -140,46 +140,37 @@ export const register: Register = on => {
     const levels = effortsOf(id)
     const effort = await effortOf($, id)
 
-    // One segment: the active one bright, the one being switched to in italics, the rest pressable.
-    const segment = (key: string, label: string, isActive: boolean, run: () => Promise<unknown>) =>
-      isActive ? (
-        <Text key={key} bold color="claude">
-          {label}
-        </Text>
-      ) : key === pending ? (
-        <Text key={key} italic dimColor>
-          {`${label}…`}
-        </Text>
-      ) : (
-        <Button key={key} plain dimColor label={label} onPress={() => press($, key, run)} />
-      )
+    // A model: the active one bold, the one being switched to in italics, the rest pressable.
+    const model = (m: string) => {
+      const key = `model:${m}`
+      if (isCurrent(id, m)) return <Text key={key} bold>{labelOf(m)}</Text>
+      if (key === pending) return <Text key={key} italic dimColor>{`${labelOf(m)}…`}</Text>
+      return <Button key={key} plain dimColor label={labelOf(m)} onPress={() => press($, key, () => switchModel($, [m], false))} />
+    }
 
-    const group = (title: string, items: ReturnType<typeof segment>[]) => (
-      <Box>
-        <Text>{`${title}  `}</Text>
-        {items.flatMap((item, i) => (i === 0 ? [item] : [<Text dimColor>{' │ '}</Text>, item]))}
-      </Box>
+    // Effort as a slider, as the model picker draws it: one pressable cell per level,
+    // filled up to the one in force, then that level's name.
+    const at = levels.indexOf(effort as Effort)
+    const cell = (l: Effort, i: number) => (
+      <Button key={`effort:${l}`} plain dimColor={i > at} label={i <= at ? '━━' : '──'} onPress={() => switchEffort($, l)} />
     )
 
+    // Stack the two groups when one row would not fit beside the band's own [-] mark.
+    const modelWidth = 7 + models.reduce((n, m) => n + m.length + 3, -3)
+    const effortWidth = 8 + (levels.length > 0 ? levels.length * 2 + 2 + (effort?.length ?? 0) : 3)
+    const isStacked = modelWidth + 4 + effortWidth + 4 > e.props.bodyColumns
+
     return (
-      <Box columnGap={4} flexWrap="wrap">
-        {group(
-          'Model',
-          models.map(m =>
-            segment(`model:${m}`, labelOf(m), isCurrent(id, m), () => switchModel($, [m], false)),
-          ),
-        )}
-        {levels.length > 0 ? (
-          group(
-            'Effort',
-            levels.map(l => segment(`effort:${l}`, l, l === effort, () => switchEffort($, l))),
-          )
-        ) : (
-          <Box>
-            <Text>{'Effort  '}</Text>
-            <Text dimColor>n/a</Text>
-          </Box>
-        )}
+      <Box flexDirection={isStacked ? 'column' : 'row'} columnGap={4}>
+        <Box>
+          <Text dimColor>{'Model  '}</Text>
+          {models.flatMap((m, i) => (i === 0 ? [model(m)] : [<Text dimColor>{' │ '}</Text>, model(m)]))}
+        </Box>
+        <Box>
+          <Text dimColor>{'Effort  '}</Text>
+          {levels.map(cell)}
+          {levels.length > 0 ? <Text bold>{`  ${effort}`}</Text> : <Text dimColor>n/a</Text>}
+        </Box>
       </Box>
     )
   })

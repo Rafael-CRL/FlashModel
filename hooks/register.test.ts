@@ -132,24 +132,28 @@ describe('the band', () => {
     test(`${surface}: offers the other models and efforts, and switches the model on press`, async ($, on) => {
       const s = world(on, 'sonnet')
       const ui = await mount($, surface)
-      expect(await buttons(ui)).toEqual(['Haiku', 'Opus', 'low', 'high', 'xhigh', 'max'])
+      // Sonnet 5.5 defaults to medium: two of five slider cells filled.
+      expect(await buttons(ui)).toEqual(['Haiku', 'Opus', '━━', '━━', '──', '──', '──'])
       expect(await active(ui, 'Sonnet')).toBe(true)
       expect(await active(ui, 'medium')).toBe(true)
 
       await ui.press({ key: 'model:opus' })
       expect(s.models).toEqual(['opus'])
-      expect(await buttons(ui)).toEqual(['Haiku', 'Sonnet', 'low', 'high', 'xhigh', 'max'])
+      expect(await buttons(ui)).toEqual(['Haiku', 'Sonnet', '━━', '━━', '──', '──', '──'])
       await ui.unmount()
     })
   }
 
-  test('switches the effort on press and marks it active', async ($, on) => {
+  test('a slider cell sets that effort and fills the slider up to it', async ($, on) => {
     const s = world(on, 'opus')
     const ui = await mount($)
     await ui.press({ key: 'effort:xhigh' })
     expect(s.efforts).toEqual([])
     expect(await active(ui, 'xhigh')).toBe(true)
-    expect(await buttons(ui)).toEqual(['Haiku', 'Sonnet', 'low', 'medium', 'high', 'max'])
+    expect(await buttons(ui)).toEqual(['Haiku', 'Sonnet', '━━', '━━', '━━', '━━', '──'])
+    await ui.press({ key: 'effort:low' })
+    expect(await active(ui, 'low')).toBe(true)
+    expect(await buttons(ui)).toEqual(['Haiku', 'Sonnet', '━━', '──', '──', '──', '──'])
     await ui.unmount()
   })
 
@@ -205,6 +209,16 @@ describe('the band', () => {
     const ui = await mount($)
     expect(await active(ui, 'high')).toBe(true)
     await ui.unmount()
+  })
+
+  test('stacks Model and Effort when one row would not fit', async ($, on) => {
+    world(on, 'sonnet')
+    const wide = await mount($)
+    expect((await wide.drawn()).props.flexDirection).toBe('row')
+    await wide.unmount()
+    const narrow = await mount($, 'terminal', { ...PROPS, bodyColumns: 60 })
+    expect((await narrow.drawn()).props.flexDirection).toBe('column')
+    await narrow.unmount()
   })
 
   test('Haiku shows effort as not applicable', async ($, on) => {

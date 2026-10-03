@@ -148,16 +148,21 @@ export const register: Register = on => {
       return <Button key={key} plain dimColor label={labelOf(m)} onPress={() => press($, key, () => switchModel($, [m], false))} />
     }
 
-    // Effort as a slider, as the model picker draws it: one pressable cell per level,
-    // filled up to the one in force, then that level's name.
+    // Effort as a stepper: ‹ and › move one level, past either end they rest dim.
+    // The value keeps one width, so › stays under the pointer while clicking through.
     const at = levels.indexOf(effort as Effort)
-    const cell = (l: Effort, i: number) => (
-      <Button key={`effort:${l}`} plain dimColor={i > at} label={i <= at ? '━━' : '──'} onPress={() => switchEffort($, l)} />
-    )
+    const width = Math.max(0, ...levels.map(l => l.length))
+    const value = effort === undefined ? '' : effort.padStart((width + effort.length) / 2).padEnd(width)
+    const step = (key: string, glyph: string, to: Effort | undefined) =>
+      to === undefined ? (
+        <Text key={key} dimColor>{` ${glyph} `}</Text>
+      ) : (
+        <Button key={key} plain dimColor label={` ${glyph} `} onPress={() => switchEffort($, to)} />
+      )
 
     // Stack the two groups when one row would not fit beside the band's own [-] mark.
     const modelWidth = 7 + models.reduce((n, m) => n + m.length + 3, -3)
-    const effortWidth = 8 + (levels.length > 0 ? levels.length * 2 + 2 + (effort?.length ?? 0) : 3)
+    const effortWidth = 7 + (levels.length > 0 ? width + 6 : 4)
     const isStacked = modelWidth + 4 + effortWidth + 4 > e.props.bodyColumns
 
     return (
@@ -167,9 +172,16 @@ export const register: Register = on => {
           {models.flatMap((m, i) => (i === 0 ? [model(m)] : [<Text dimColor>{' │ '}</Text>, model(m)]))}
         </Box>
         <Box>
-          <Text dimColor>{'Effort  '}</Text>
-          {levels.map(cell)}
-          {levels.length > 0 ? <Text bold>{`  ${effort}`}</Text> : <Text dimColor>n/a</Text>}
+          <Text dimColor>{'Effort '}</Text>
+          {levels.length > 0 ? (
+            <Box>
+              {step('effort:down', '‹', levels[at - 1])}
+              <Text bold>{value}</Text>
+              {step('effort:up', '›', levels[at + 1])}
+            </Box>
+          ) : (
+            <Text dimColor> n/a</Text>
+          )}
         </Box>
       </Box>
     )

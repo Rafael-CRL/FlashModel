@@ -132,28 +132,62 @@ describe('the band', () => {
     test(`${surface}: offers the other models and efforts, and switches the model on press`, async ($, on) => {
       const s = world(on, 'sonnet')
       const ui = await mount($, surface)
-      // Sonnet 5.5 defaults to medium: two of five slider cells filled.
-      expect(await buttons(ui)).toEqual(['Haiku', 'Opus', '━━', '━━', '──', '──', '──'])
+      // Sonnet 5.5 defaults to medium, so the stepper can go both ways.
+      expect(await buttons(ui)).toEqual(['Haiku', 'Opus', ' ‹ ', ' › '])
       expect(await active(ui, 'Sonnet')).toBe(true)
       expect(await active(ui, 'medium')).toBe(true)
 
       await ui.press({ key: 'model:opus' })
       expect(s.models).toEqual(['opus'])
-      expect(await buttons(ui)).toEqual(['Haiku', 'Sonnet', '━━', '━━', '──', '──', '──'])
+      expect(await buttons(ui)).toEqual(['Haiku', 'Sonnet', ' ‹ ', ' › '])
       await ui.unmount()
     })
   }
 
-  test('a slider cell sets that effort and fills the slider up to it', async ($, on) => {
+  test('the stepper moves one level per press and rests at either end', async ($, on) => {
     const s = world(on, 'opus')
     const ui = await mount($)
-    await ui.press({ key: 'effort:xhigh' })
+    for (const level of ['high', 'xhigh', 'max']) {
+      await ui.press({ key: 'effort:up' })
+      expect(await active(ui, level)).toBe(true)
+    }
     expect(s.efforts).toEqual([])
-    expect(await active(ui, 'xhigh')).toBe(true)
-    expect(await buttons(ui)).toEqual(['Haiku', 'Sonnet', '━━', '━━', '━━', '━━', '──'])
-    await ui.press({ key: 'effort:low' })
+    expect(await ui.find({ type: 'Button', key: 'effort:up' })).toBeUndefined()
+    for (let i = 0; i < 4; i++) await ui.press({ key: 'effort:down' })
     expect(await active(ui, 'low')).toBe(true)
-    expect(await buttons(ui)).toEqual(['Haiku', 'Sonnet', '━━', '──', '──', '──', '──'])
+    expect(await ui.find({ type: 'Button', key: 'effort:down' })).toBeUndefined()
+    await ui.unmount()
+  })
+
+  test('the value keeps one width, so › does not move', async ($, on) => {
+    world(on, 'opus')
+    const ui = await mount($)
+    const widths: number[] = []
+    await ui.press({ key: 'effort:down' })
+    for (let i = 0; i < 5; i++) {
+      widths.push((await ui.find({ type: 'Text', text: /^ *(low|medium|high|xhigh|max) *$/ })).text.length)
+      if (i < 4) await ui.press({ key: 'effort:up' })
+    }
+    expect(widths).toHaveLength(5)
+    expect(new Set(widths).size).toBe(1)
+    await ui.unmount()
+  })
+
+  test('a level pressed in the band rides on main-conversation requests only', async ($, on) => {
+    world(on, 'opus')
+    const seen: (string | undefined)[] = []
+    on('turn.step', async function* (_$: any, e: any) {
+      seen.push(e.effort)
+      return { turnId: 't', index: 0, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
+    })
+    const ui = await mount($)
+    await ui.press({ key: 'effort:down' })
+    const step = (extra: object) =>
+      $.turn.step({ turnId: 't', index: 0, model: ID.opus, effort: 'medium', messageCount: 1, ...extra })
+    for await (const _ of step({})) void _
+    for await (const _ of step({ agentId: 'sub' })) void _
+    for await (const _ of step({ model: ID.haiku, effort: undefined })) void _
+    expect(seen).toEqual(['low', 'medium', undefined])
     await ui.unmount()
   })
 
@@ -165,28 +199,10 @@ describe('the band', () => {
     await ui.unmount()
   })
 
-  test('a chosen effort rides on main-conversation requests only', async ($, on) => {
-    world(on, 'opus')
-    const seen: (string | undefined)[] = []
-    on('turn.step', async function* (_$: any, e: any) {
-      seen.push(e.effort)
-      return { turnId: 't', index: 0, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
-    })
-    const ui = await mount($)
-    await ui.press({ key: 'effort:low' })
-    const step = (extra: object) =>
-      $.turn.step({ turnId: 't', index: 0, model: ID.opus, effort: 'medium', messageCount: 1, ...extra })
-    for await (const _ of step({})) void _
-    for await (const _ of step({ agentId: 'sub' })) void _
-    for await (const _ of step({ model: ID.haiku, effort: undefined })) void _
-    expect(seen).toEqual(['low', 'medium', undefined])
-    await ui.unmount()
-  })
-
   test('the person running /effort takes over from the chosen effort', async ($, on) => {
     world(on, 'opus')
     const ui = await mount($)
-    await ui.press({ key: 'effort:low' })
+    await ui.press({ key: 'effort:down' })
     await $.command.run({ command: 'effort', args: 'max' })
     expect(await active(ui, 'max')).toBe(true)
     await ui.unmount()
@@ -216,7 +232,7 @@ describe('the band', () => {
     const wide = await mount($)
     expect((await wide.drawn()).props.flexDirection).toBe('row')
     await wide.unmount()
-    const narrow = await mount($, 'terminal', { ...PROPS, bodyColumns: 60 })
+    const narrow = await mount($, 'terminal', { ...PROPS, bodyColumns: 50 })
     expect((await narrow.drawn()).props.flexDirection).toBe('column')
     await narrow.unmount()
   })

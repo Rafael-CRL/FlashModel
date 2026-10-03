@@ -83,7 +83,7 @@ describe('/m', () => {
     const s = world(on, 'sonnet')
     await m($, clock, 'opus high')
     expect(s.models).toEqual(['opus'])
-    expect(s.efforts).toEqual(['high'])
+    expect(s.efforts).toEqual([]) // never /effort: it would save the level as a default
     expect(s.toasts).toEqual(['Model → claude-opus-5-5 · high effort'])
   })
 
@@ -92,7 +92,7 @@ describe('/m', () => {
     const s = world(on, 'sonnet')
     await m($, clock, 'low')
     expect(s.models).toEqual([])
-    expect(s.efforts).toEqual(['low'])
+    expect(s.toasts).toEqual(['Model → claude-sonnet-5-5 · low effort'])
   })
 
   test('a refused model is skipped, now and on later presses', async ($, on) => {
@@ -147,7 +147,7 @@ describe('the band', () => {
     const s = world(on, 'opus')
     const ui = await mount($)
     await ui.press({ key: 'effort:xhigh' })
-    expect(s.efforts).toEqual(['xhigh'])
+    expect(s.efforts).toEqual([])
     expect(await active(ui, 'xhigh')).toBe(true)
     expect(await buttons(ui)).toEqual(['Haiku', 'Sonnet', 'low', 'medium', 'high', 'max'])
     await ui.unmount()
@@ -156,6 +156,33 @@ describe('the band', () => {
   test('the effort follows the person running /effort', async ($, on) => {
     world(on, 'sonnet')
     const ui = await mount($)
+    await $.command.run({ command: 'effort', args: 'max' })
+    expect(await active(ui, 'max')).toBe(true)
+    await ui.unmount()
+  })
+
+  test('a chosen effort rides on main-conversation requests only', async ($, on) => {
+    world(on, 'opus')
+    const seen: (string | undefined)[] = []
+    on('turn.step', async function* (_$: any, e: any) {
+      seen.push(e.effort)
+      return { turnId: 't', index: 0, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
+    })
+    const ui = await mount($)
+    await ui.press({ key: 'effort:low' })
+    const step = (extra: object) =>
+      $.turn.step({ turnId: 't', index: 0, model: ID.opus, effort: 'medium', messageCount: 1, ...extra })
+    for await (const _ of step({})) void _
+    for await (const _ of step({ agentId: 'sub' })) void _
+    for await (const _ of step({ model: ID.haiku, effort: undefined })) void _
+    expect(seen).toEqual(['low', 'medium', undefined])
+    await ui.unmount()
+  })
+
+  test('the person running /effort takes over from the chosen effort', async ($, on) => {
+    world(on, 'opus')
+    const ui = await mount($)
+    await ui.press({ key: 'effort:low' })
     await $.command.run({ command: 'effort', args: 'max' })
     expect(await active(ui, 'max')).toBe(true)
     await ui.unmount()
@@ -184,7 +211,7 @@ describe('the band', () => {
     world(on, 'haiku')
     const ui = await mount($)
     expect(await buttons(ui)).toEqual(['Sonnet', 'Opus'])
-    expect(await ui.find({ type: 'Text', text: 'Effort  n/a' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'n/a' })).toBeDefined()
     await ui.unmount()
   })
 

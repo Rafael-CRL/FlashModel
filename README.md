@@ -1,15 +1,16 @@
 # FlashModel
 
-A compact model switcher for Claude Code. One row above the prompt shows the
-models available to you, marks the active one, and switches when you click or
-press a key:
+A compact model and effort switcher for Claude Code. One row above the prompt
+shows the models and effort levels you can use and marks the ones in force.
+Click any of them to switch:
 
 ```text
-Model  h: Haiku   s: ● Sonnet   o: Opus   f: Fable
+Model  Haiku │ Sonnet │ Opus    Effort  low │ medium │ high │ xhigh │ max
 ```
 
-No command to remember, no picker to open. `/m` cycles to the next model as a
-fallback.
+The active model and effort are bold in the accent color; the rest are dim
+until you hover or focus them. No command to type, no picker to open, and both
+settings are visible at all times. `/m` remains as a keyboard fallback.
 
 ## Install
 
@@ -24,63 +25,71 @@ Try it without installing: `claude --plugin-dir /path/to/FlashModel`.
 
 | Do this | Result |
 | --- | --- |
-| Click a model in the row | Switches to it |
-| `Ctrl+X` then `Tab`, then the model's letter (`h`, `s`, `o`, `f`) | Switches to it; `Esc` returns to the prompt |
-| `/m` | Switches to the next model, wrapping around |
-| `/m <model>` | Switches to that alias or id, same as `/model <model>` |
+| Click a model or an effort level | Switches to it |
+| `Ctrl+X` `Tab`, then `Tab` to a segment and `Enter` | Switches to it; `Esc` returns to the prompt |
+| `/m` | Switches to the next model: Haiku → Sonnet → Opus → Haiku |
+| `/m <model>` | Switches to that model (any alias or id, Fable included) |
+| `/m <effort>` | Sets the effort: `low`, `medium`, `high`, `xhigh` or `max` |
+| `/m <model> <effort>` | Both at once, such as `/m opus high` |
 
-The row updates whenever the model changes, including through `/model`, the
-model picker, or `/m`. A toast also confirms each switch. The row yields to
-surveys, and you can collapse it with `Ctrl+X Ctrl+A`.
+While Claude is working, a model you pick shows in italics with `…` until
+Claude Code applies it at the end of the turn. The row also updates when you
+change the model or effort elsewhere: `/model`, the model picker, or `/effort`.
+It makes way for surveys, and `Ctrl+X Ctrl+A` collapses it. In a narrow
+terminal, Effort wraps onto a second row.
 
-### Model list and cycling
+### Models
 
-- The models are the options of the `/config` **Model** row, read each time,
-  so they follow what your account offers. They are shown smallest to largest
-  (Haiku, Sonnet, Opus, Fable); `/m` cycles in the same order.
-- `default`, `best`, `opusplan` and the `[1m]` variants are not shown. Use
-  `/m sonnet[1m]` to pick one explicitly.
-- If Claude Code refuses a switch (no access, or a one-time consent such as
-  Fable's), `/m` moves on to the next model and skips the refused one for the
-  rest of the session. Clicking a refused model shows `Model unchanged`.
-- Every switch is **session-only**, exactly like `/model <name>`. Your saved
-  default model in `settings.json` is never changed.
+- The models come from the options of the `/config` **Model** row, read each
+  time, so they follow what your account offers, ordered smallest to largest.
+- **Fable is left out** of the row and the `/m` cycle: it bills usage credits
+  and needs a one-time consent. `/m fable` still switches to it.
+- `default`, `best`, `opusplan` and the `[1m]` variants are left out; `/m
+  sonnet[1m]` picks one explicitly.
+- If Claude Code refuses a model during `/m` cycling (no access or a pending
+  consent), FlashModel skips it for the rest of the session.
+- Switching runs `/model <name>`, which is **session-only**: your saved default
+  model is never changed.
 
-### Option: number keys
+### Effort
 
-Off by default. In the plugin's options (`/config`), turn on **Digit hotkeys**
-and the row shows `1: Haiku  2: Sonnet ...`. Typing a digit alone into an empty
-prompt and pausing then presses that model, with no focus step. The cost: a
-bare `1` typed as a reply to Claude also triggers it, which is why it is opt-in.
-
-### Optional: your own keybinding
-
-Plugins cannot register shortcuts, and `keybindings.json` cannot bind a key to
-a slash command, so FlashModel ships none. Claude Code's built-in `Meta+P`
-(`chat:modelPicker`) opens the native picker if you want a single key.
+- The levels shown are the ones the active model takes. Haiku takes none and
+  shows `Effort n/a`.
+- **Session-only, and never saved.** `/effort <level>` saves the level as the
+  model's default, so FlashModel does not run it. Instead, it sends your chosen
+  level with each request of the main conversation. Subagents keep their own
+  effort.
+- Running `/effort` yourself takes over again from FlashModel's choice.
+- With no choice made, the row shows what Claude Code uses: your saved
+  per-model level, else the model's default. After the first request, it shows
+  the level the request actually carried.
 
 ## Capabilities used
 
-Mod hooks `session.start`, `command.run`, `ui.render` (the band above the
-prompt) and `classic.PostModelSwitch`, and the `$` calls `command.register`,
-`command.run`, `config.list`, `session.model`, `clock.after`, `ui.resolve`,
-`ui.invalidate` and `ui.toast`. No network, files, processes, tools, or
-settings writes. Nothing runs in the background.
+Mod hooks `session.start`, `command.run` (`/m`, and watching `/effort`),
+`turn.step` (reads the effort of each main-conversation request and applies
+yours), `ui.render` (the row above the prompt) and `classic.PostModelSwitch`.
+`$` calls `command.register`, `command.run` (`/model` only), `config.list`,
+`session.model`, `settings.read`, `clock.after`, `ui.resolve`,
+`ui.invalidate` and `ui.toast`. FlashModel uses no network, files, processes
+or tools, never writes settings, and runs nothing in the background.
 
 ## Known limitations
 
-- **Terminal and desktop only.** The band is drawn on those surfaces; other
-  surfaces keep `/m`.
-- **Clicking needs a terminal with mouse support** (Claude Code's fullscreen
-  mode). Without it, use the keyboard path or `/m`.
-- **No single-key shortcut** without the number-keys option (see above).
-- **One row of space** above the prompt; hidden while a survey is shown, or
-  when fewer than two models are available.
+- **Claude Code's own effort indicator does not see FlashModel's choice.** The
+  session header and footer show the effort Claude Code would use by itself;
+  the row shows the effort actually sent.
+- **No hotkeys.** Plugins cannot register shortcuts, and letter hotkeys
+  collided between models and effort (`h` for Haiku and high). Use a click,
+  `Ctrl+X Tab`, or `/m`. Claude Code's `Meta+P` opens its own picker.
+- **Clicking needs a terminal with mouse support.**
+- **Effort levels per model come from Claude Code's documentation**, since
+  there is no API that lists them; a level a model does not take is not shown.
+- FlashModel's effort choice lasts until the plugin reloads or the session
+  ends.
+- Terminal and desktop only; other surfaces keep `/m`.
 - Mods are an early-access API and may change between Claude Code releases.
   Developed against Claude Code 2.1.288.
-- The tests mount the row on the terminal and desktop surfaces and press its
-  buttons, but the real terminal's mouse and key handling is Claude Code's own
-  and is not exercised by `claude plugin test`.
 
 ## Development
 

@@ -5,9 +5,12 @@ import { defaultEffort, effortsOf, isCurrent, isEffort, labelOf, selectable } fr
 
 // Session state, rebuilt on a reload. Claude Code has no getter for the effort in
 // force, so FlashModel follows it: the last /effort run, and what each request sent.
+// /effort <level> saves the level as the model's default, so FlashModel never runs it:
+// its own choice rides on each main-conversation request instead, for this session only.
 const refused = new Set<string>() // models /model refused this session
 const sent = new Map<string, Effort>() // model id → effort its last main-loop request carried
 let chosen: Effort | 'auto' | undefined // the last /effort level this session
+let override: Effort | undefined // FlashModel's effort, until the person runs /effort
 let pending: string | undefined // the band segment being switched to
 
 async function modelRow($: EngineInterface) {
@@ -15,7 +18,9 @@ async function modelRow($: EngineInterface) {
 }
 
 async function effortOf($: EngineInterface, id: string): Promise<Effort | undefined> {
-  if (effortsOf(id).length === 0) return undefined
+  const levels = effortsOf(id)
+  if (levels.length === 0) return undefined
+  if (override !== undefined && levels.includes(override)) return override
   const seen = sent.get(id)
   if (seen !== undefined) return seen
   if (isEffort(chosen)) return chosen
@@ -41,14 +46,10 @@ async function switchModel($: EngineInterface, targets: string[], isCycle: boole
   return undefined
 }
 
-async function switchEffort($: EngineInterface, level: Effort) {
-  const { text } = await $.command.run({ command: 'effort', args: level })
-  const isSet = text === undefined || /\bset\b/i.test(text)
-  if (isSet) {
-    chosen = level
-    sent.clear()
-  }
-  return isSet
+function switchEffort($: EngineInterface, level: Effort) {
+  override = level
+  $.ui.invalidate('ui.render')
+  return true
 }
 
 // A band press: mark the segment pending, switch, redraw. The band is the confirmation.
@@ -84,14 +85,20 @@ export const register: Register = on => {
     const level = (e.args ?? '').trim()
     if (isEffort(level) || level === 'auto') chosen = level
     if (level === '') chosen = undefined // the slider: settings say what it saved
+    override = undefined
     sent.clear()
     $.ui.invalidate('ui.render')
     return result
   })
 
-  // The effort each main-loop request carries is the ground truth; keep the last one.
+  // Main-conversation requests carry FlashModel's effort where the model takes it;
+  // otherwise the effort a request carries is the ground truth, kept per model.
   on('turn.step', async function* ($, e, next) {
-    if (e.agentId === undefined && isEffort(e.effort) && sent.get(e.model) !== e.effort) {
+    if (e.agentId !== undefined || e.effort === undefined) return yield* next(e)
+    if (override !== undefined && effortsOf(e.model).includes(override)) {
+      return yield* next({ ...e, effort: override })
+    }
+    if (isEffort(e.effort) && sent.get(e.model) !== e.effort) {
       sent.set(e.model, e.effort)
       $.ui.invalidate('ui.render')
     }
@@ -116,9 +123,9 @@ export const register: Register = on => {
     $.clock.after(0, async () => {
       const now = queue.length > 0 ? await switchModel($, queue, !asked) : before
       if (now === undefined) return $.ui.toast(`Model unchanged: ${before}`)
-      const isSet = level === undefined || (await switchEffort($, level))
+      if (level !== undefined) switchEffort($, level)
       const effort = await effortOf($, now)
-      $.ui.toast(`Model → ${now}${effort ? ` · ${effort} effort` : ''}${isSet ? '' : ' (effort unchanged)'}`)
+      $.ui.toast(`Model → ${now}${effort ? ` · ${effort} effort` : ''}`)
       $.ui.invalidate('ui.render')
     })
     return {}
@@ -149,7 +156,7 @@ export const register: Register = on => {
 
     const group = (title: string, items: ReturnType<typeof segment>[]) => (
       <Box>
-        <Text dimColor>{`${title}  `}</Text>
+        <Text>{`${title}  `}</Text>
         {items.flatMap((item, i) => (i === 0 ? [item] : [<Text dimColor>{' │ '}</Text>, item]))}
       </Box>
     )
@@ -168,7 +175,10 @@ export const register: Register = on => {
             levels.map(l => segment(`effort:${l}`, l, l === effort, () => switchEffort($, l))),
           )
         ) : (
-          <Text dimColor>Effort  n/a</Text>
+          <Box>
+            <Text>{'Effort  '}</Text>
+            <Text dimColor>n/a</Text>
+          </Box>
         )}
       </Box>
     )

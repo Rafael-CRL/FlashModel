@@ -33,3 +33,10 @@ export const effortsOf = (id: string): Effort[] =>
 /** The level a model runs at when nothing sets one. */
 export const defaultEffort = (id: string): Effort =>
   /(opus|sonnet)-5-5/.test(id) ? 'medium' : /opus-4-7/.test(id) ? 'xhigh' : 'high'
+
+/** A level the model takes: the given one, else the nearest below it, else the model's default. */
+export const fitEffort = (level: Effort, id: string): Effort => {
+  const levels = effortsOf(id)
+  const below = levels.filter(l => EFFORTS.indexOf(l) <= EFFORTS.indexOf(level))
+  return below.at(-1) ?? defaultEffort(id)
+}

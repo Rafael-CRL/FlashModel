@@ -1,7 +1,17 @@
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Effort } from './models'
-import { defaultEffort, effortsOf, isCurrent, isEffort, labelOf, selectable } from './models'
+import { defaultEffort, EFFORTS, effortsOf, fitEffort, isCurrent, isEffort, labelOf, selectable } from './models'
+
+// What the band draws besides the names, measured to decide when to stack.
+const MODEL_TITLE = 'Model  '
+const EFFORT_TITLE = 'Effort '
+const SEPARATOR = ' │ '
+const DOWN = ' ‹ '
+const UP = ' › '
+const NONE = ' n/a'
+const VALUE_WIDTH = Math.max(...EFFORTS.map(l => l.length))
+const GAP = 4 // between the groups, and the room the band's own [-] mark takes
 
 // Session state, rebuilt on a reload. Claude Code has no getter for the effort in
 // force, so FlashModel follows it: the last /effort run, and what each request sent.
@@ -17,20 +27,20 @@ async function modelRow($: EngineInterface) {
   return selectable((await $.config.list()).find(r => r.key === 'model')?.options)
 }
 
+// The effort in force for a model, always one of the levels it takes.
 async function effortOf($: EngineInterface, id: string): Promise<Effort | undefined> {
-  const levels = effortsOf(id)
-  if (levels.length === 0) return undefined
-  if (override !== undefined && levels.includes(override)) return override
+  if (effortsOf(id).length === 0) return undefined
+  if (override !== undefined) return fitEffort(override, id)
   const seen = sent.get(id)
-  if (seen !== undefined) return seen
-  if (isEffort(chosen)) return chosen
+  if (seen !== undefined) return fitEffort(seen, id)
+  if (isEffort(chosen)) return fitEffort(chosen, id)
   if (chosen === 'auto') return defaultEffort(id)
   const settings = (await $.settings.read()) as {
     effortLevel?: unknown
     modelSettings?: Record<string, { effortLevel?: unknown }>
   }
   const saved = settings.modelSettings?.[id]?.effortLevel ?? settings.effortLevel
-  return isEffort(saved) ? saved : defaultEffort(id)
+  return isEffort(saved) ? fitEffort(saved, id) : defaultEffort(id)
 }
 
 // Runs /model for each target until the session's model changes; true if it did.
@@ -95,9 +105,7 @@ export const register: Register = on => {
   // otherwise the effort a request carries is the ground truth, kept per model.
   on('turn.step', async function* ($, e, next) {
     if (e.agentId !== undefined || e.effort === undefined) return yield* next(e)
-    if (override !== undefined && effortsOf(e.model).includes(override)) {
-      return yield* next({ ...e, effort: override })
-    }
+    if (override !== undefined) return yield* next({ ...e, effort: fitEffort(override, e.model) })
     if (isEffort(e.effort) && sent.get(e.model) !== e.effort) {
       sent.set(e.model, e.effort)
       $.ui.invalidate('ui.render')
@@ -148,39 +156,44 @@ export const register: Register = on => {
       return <Button key={key} plain dimColor label={labelOf(m)} onPress={() => press($, key, () => switchModel($, [m], false))} />
     }
 
-    // Effort as a stepper: ‹ and › move one level, past either end they rest dim.
-    // The value keeps one width, so › stays under the pointer while clicking through.
+    // Effort as a stepper: ‹ and › move one level; at either end the arrow dims and
+    // does nothing, but stays focusable so Enter-stepping keeps its place. The value
+    // sits in a fixed-width box, so › stays under the pointer while clicking through.
     const at = levels.indexOf(effort as Effort)
-    const width = Math.max(0, ...levels.map(l => l.length))
-    const value = effort === undefined ? '' : effort.padStart((width + effort.length) / 2).padEnd(width)
-    const step = (key: string, glyph: string, to: Effort | undefined) =>
-      to === undefined ? (
-        <Text key={key} dimColor>{` ${glyph} `}</Text>
-      ) : (
-        <Button key={key} plain dimColor label={` ${glyph} `} onPress={() => switchEffort($, to)} />
-      )
+    const step = (key: string, label: string, to: Effort | undefined) => (
+      <Button
+        key={key}
+        plain
+        dimColor={to === undefined}
+        label={label}
+        onPress={() => (to === undefined ? undefined : switchEffort($, to))}
+      />
+    )
 
     // Stack the two groups when one row would not fit beside the band's own [-] mark.
-    const modelWidth = 7 + models.reduce((n, m) => n + m.length + 3, -3)
-    const effortWidth = 7 + (levels.length > 0 ? width + 6 : 4)
-    const isStacked = modelWidth + 4 + effortWidth + 4 > e.props.bodyColumns
+    const modelWidth = (MODEL_TITLE + models.map(labelOf).join(SEPARATOR)).length
+    const effortWidth =
+      EFFORT_TITLE.length + (levels.length > 0 ? DOWN.length + VALUE_WIDTH + UP.length : NONE.length)
+    const isStacked = modelWidth + GAP + effortWidth + GAP > e.props.bodyColumns
 
     return (
       <Box flexDirection={isStacked ? 'column' : 'row'} columnGap={4}>
         <Box>
-          <Text dimColor>{'Model  '}</Text>
-          {models.flatMap((m, i) => (i === 0 ? [model(m)] : [<Text dimColor>{' │ '}</Text>, model(m)]))}
+          <Text dimColor>{MODEL_TITLE}</Text>
+          {models.flatMap((m, i) => (i === 0 ? [model(m)] : [<Text dimColor>{SEPARATOR}</Text>, model(m)]))}
         </Box>
         <Box>
-          <Text dimColor>{'Effort '}</Text>
+          <Text dimColor>{EFFORT_TITLE}</Text>
           {levels.length > 0 ? (
             <Box>
-              {step('effort:down', '‹', levels[at - 1])}
-              <Text bold>{value}</Text>
-              {step('effort:up', '›', levels[at + 1])}
+              {step('effort:down', DOWN, levels[at - 1])}
+              <Box key="effort:value" width={VALUE_WIDTH} justifyContent="center">
+                <Text bold>{effort}</Text>
+              </Box>
+              {step('effort:up', UP, levels[at + 1])}
             </Box>
           ) : (
-            <Text dimColor> n/a</Text>
+            <Text dimColor>{NONE}</Text>
           )}
         </Box>
       </Box>

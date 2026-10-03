@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { defaultEffort, effortsOf, isCurrent, labelOf, selectable } from './models'
+import { defaultEffort, effortsOf, fitEffort, isCurrent, labelOf, selectable } from './models'
 
 describe('models', () => {
   test('selectable drops Fable and non-models, smallest to largest', () => {
@@ -36,5 +36,11 @@ describe('effort', () => {
     expect(defaultEffort('claude-sonnet-5-5')).toBe('medium')
     expect(defaultEffort('claude-opus-4-7')).toBe('xhigh')
     expect(defaultEffort('claude-fable-5-1')).toBe('high')
+  })
+
+  test('a level a model does not take falls to the nearest one below', () => {
+    expect(fitEffort('xhigh', 'claude-sonnet-4-6')).toBe('high')
+    expect(fitEffort('max', 'claude-sonnet-4-6')).toBe('max')
+    expect(fitEffort('xhigh', 'claude-opus-5-5')).toBe('xhigh')
   })
 })

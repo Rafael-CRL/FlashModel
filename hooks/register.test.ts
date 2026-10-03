@@ -147,29 +147,58 @@ describe('the band', () => {
   test('the stepper moves one level per press and rests at either end', async ($, on) => {
     const s = world(on, 'opus')
     const ui = await mount($)
+    const arrow = async (key: string) => (await ui.find({ type: 'Button', key }))?.props
+    expect((await arrow('effort:up'))?.dimColor).toBe(false)
     for (const level of ['high', 'xhigh', 'max']) {
       await ui.press({ key: 'effort:up' })
       expect(await active(ui, level)).toBe(true)
     }
     expect(s.efforts).toEqual([])
-    expect(await ui.find({ type: 'Button', key: 'effort:up' })).toBeUndefined()
-    for (let i = 0; i < 4; i++) await ui.press({ key: 'effort:down' })
+    // At the end the arrow dims and does nothing, but stays a Button so focus keeps its place.
+    expect((await arrow('effort:up'))?.dimColor).toBe(true)
+    await ui.press({ key: 'effort:up' })
+    expect(await active(ui, 'max')).toBe(true)
+    for (let i = 0; i < 5; i++) await ui.press({ key: 'effort:down' })
     expect(await active(ui, 'low')).toBe(true)
-    expect(await ui.find({ type: 'Button', key: 'effort:down' })).toBeUndefined()
+    expect((await arrow('effort:down'))?.dimColor).toBe(true)
     await ui.unmount()
   })
 
-  test('the value keeps one width, so › does not move', async ($, on) => {
+  test('the value sits in a fixed-width box, so › does not move', async ($, on) => {
     world(on, 'opus')
     const ui = await mount($)
-    const widths: number[] = []
-    await ui.press({ key: 'effort:down' })
-    for (let i = 0; i < 5; i++) {
-      widths.push((await ui.find({ type: 'Text', text: /^ *(low|medium|high|xhigh|max) *$/ })).text.length)
-      if (i < 4) await ui.press({ key: 'effort:up' })
+    const widths = new Set<unknown>()
+    for (let i = 0; i < 4; i++) {
+      widths.add((await ui.find({ key: 'effort:value' }))?.props?.width)
+      await ui.press({ key: 'effort:down' })
     }
-    expect(widths).toHaveLength(5)
-    expect(new Set(widths).size).toBe(1)
+    expect([...widths]).toEqual([6])
+    await ui.unmount()
+  })
+
+  test('a level the model does not take shows the nearest one below, and steps from there', async ($, on) => {
+    world(on, 'claude-sonnet-4-6', { settings: { effortLevel: 'xhigh' } })
+    const ui = await mount($)
+    expect(await active(ui, 'high')).toBe(true)
+    await ui.press({ key: 'effort:up' })
+    expect(await active(ui, 'max')).toBe(true)
+    await ui.press({ key: 'effort:down' })
+    expect(await active(ui, 'high')).toBe(true)
+    await ui.unmount()
+  })
+
+  test('a chosen level a later model does not take is sent as the nearest one below', async ($, on) => {
+    const s = world(on, 'opus')
+    const seen: (string | undefined)[] = []
+    on('turn.step', async function* (_$: any, e: any) {
+      seen.push(e.effort)
+      return { turnId: 't', index: 0, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
+    })
+    const ui = await mount($)
+    for (let i = 0; i < 2; i++) await ui.press({ key: 'effort:up' }) // medium → xhigh
+    s.model = 'claude-sonnet-4-6'
+    for await (const _ of $.turn.step({ turnId: 't', index: 0, model: s.model, effort: 'high', messageCount: 1 })) void _
+    expect(seen).toEqual(['high'])
     await ui.unmount()
   })
 

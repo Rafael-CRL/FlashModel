@@ -107,6 +107,8 @@ FlashModel also registers one command of its own, `/m`, described under
   network, processes or tools; run anything in the background; or send data
   anywhere.
 
+See also the [privacy policy](PRIVACY.md).
+
 ## Known limitations
 
 - **Switches save a default, as Claude Code's commands do** (see [Slash

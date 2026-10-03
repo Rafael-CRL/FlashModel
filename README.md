@@ -91,7 +91,7 @@ FlashModel also registers one command of its own, `/m`, described under
 | `ui.render`, for the band above the prompt only | Whether a survey holds the band, and its width | Draws the model and effort row; when a survey is showing, it leaves the band to the survey. No other part of the interface is touched. |
 | `classic.PostModelSwitch` | Nothing from the event | Redraws the row. Passes the event on unchanged and adds no context for Claude. |
 | `classic.ConfigChange` | Nothing from the event | Redraws the row, which re-reads the saved effort (see below). Passes the event on unchanged. |
-| `session.append` | Every row passes through this hook as the conversation stores it. FlashModel looks only at command output in the main conversation, for the "Set model to …" and "Set effort level …" lines that `/model` and `/effort` print, and takes the effort level from them. | Nothing: every row is passed on unchanged. Prompts, Claude's replies, tool calls and results, and subagent rows are not inspected. |
+| `session.append` | Every row passes through this hook as the conversation stores it, including rows that other plugins add with `$.session.append`. FlashModel looks only at command output in the main conversation, for the "Set model to …" and "Set effort level …" lines that `/model` and `/effort` print, and takes the effort level from them. | Nothing: every row, whoever added it, is passed on unchanged. Prompts, Claude's replies, tool calls and results, other plugins' rows, and subagent rows are not inspected. |
 | `turn.step` | The model id and effort level of each main-conversation request. Messages, system prompt and tools are not part of this event. | Nothing: every request is sent unchanged. |
 
 ### Data it reads, and what it does not do

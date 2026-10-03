@@ -35,8 +35,8 @@ Try it without installing: `claude --plugin-dir /path/to/FlashModel`.
 | `/m <effort>` | Sets the effort: `low`, `medium`, `high`, `xhigh` or `max` |
 | `/m <model> <effort>` | Both at once, such as `/m opus high` |
 
-While Claude is working, a model you pick shows in italics with `…` until
-Claude Code applies it at the end of the turn. The row also updates when you
+While Claude is working, a model or effort level you pick shows in italics
+until Claude Code applies it at the end of the turn. The row also updates when you
 change the model or effort elsewhere: `/model`, the model picker, or `/effort`.
 It makes way for surveys, and `Ctrl+X Ctrl+A` collapses it. When one row does
 not fit, Effort moves to a second row.
@@ -51,45 +51,50 @@ not fit, Effort moves to a second row.
   sonnet[1m]` picks one explicitly.
 - If Claude Code refuses a model during `/m` cycling (no access or a pending
   consent), FlashModel skips it for the rest of the session.
-- Switching runs `/model <name>`, which is **session-only**: your saved default
-  model is never changed.
 
 ### Effort
 
 - The stepper covers the levels the active model takes. Haiku takes none and
   shows `Effort n/a`. To jump straight to a level, use `/m <level>`.
-- **Session-only, and never saved.** `/effort <level>` saves the level as the
-  model's default, so FlashModel does not run it. Instead, it sends your chosen
-  level with each request of the main conversation. Subagents keep their own
-  effort.
-- Running `/effort` yourself takes over again from FlashModel's choice.
-- With no choice made, the row shows what Claude Code uses: your saved
-  per-model level, else the model's default. After the first request, it shows
-  the level the request actually carried.
+- The row always shows Claude Code's own effort, the one in its session header
+  and model picker. However you change it (the row, `/effort`, the `/effort`
+  slider, or the model picker with Enter or `s`), the row follows, and the next
+  request confirms it.
+
+### What is saved
+
+Each switch runs Claude Code's own command, exactly as if you typed it:
+`/model <name>` for a model and `/effort <level>` for effort. In an interactive
+session, Claude Code saves that pick as your default for new sessions, the same
+as typing the command or pressing Enter in its picker (`max` effort is always
+for this session only). FlashModel writes no settings itself. For a
+this-session-only change, use the model picker's `s` key; the row follows it.
 
 ## Capabilities used
 
-Mod hooks `session.start`, `command.run` (`/m`, and watching `/effort`),
-`turn.step` (reads the effort of each main-conversation request and applies
-yours), `ui.render` (the row above the prompt) and `classic.PostModelSwitch`.
-`$` calls `command.register`, `command.run` (`/model` only), `config.list`,
-`session.model`, `settings.read`, `clock.after`, `ui.resolve`,
-`ui.invalidate` and `ui.toast`. FlashModel uses no network, files, processes
-or tools, never writes settings, and runs nothing in the background.
+Mod hooks `session.start`, `command.run` (`/m`), `ui.render` (the row above the
+prompt), and, to follow the model and effort in force: `classic.PostModelSwitch`,
+`classic.ConfigChange`, `session.append` (reads what `/model` and `/effort`
+report) and `turn.step` (reads the effort each request carries). `$` calls
+`command.register`, `command.run` (`/model` and `/effort` only), `config.list`,
+`session.model`, `settings.read`, `clock.after`, `ui.resolve`, `ui.invalidate`
+and `ui.toast`. FlashModel changes no messages or requests, uses no network,
+files, processes or tools, and runs nothing in the background.
 
 ## Known limitations
 
-- **Claude Code's own effort indicator does not see FlashModel's choice.** The
-  session header and footer show the effort Claude Code would use by itself;
-  the row shows the effort actually sent.
+- **Switches save a default, as Claude Code's commands do.** No command a mod
+  can run switches for this session only; that needs the picker's `s` key.
 - **No hotkeys.** Plugins cannot register shortcuts, and letter hotkeys
   collided between models and effort (`h` for Haiku and high). Use a click,
   `Ctrl+X Tab`, or `/m`. Claude Code's `Meta+P` opens its own picker.
 - **Clicking needs a terminal with mouse support.**
+- **Claude Code has no way to ask for the effort in force**, so FlashModel
+  reads it from what `/model` and `/effort` report, your settings, and each
+  request. A change it cannot see, such as `--effort` at startup, shows after
+  the first request.
 - **Effort levels per model come from Claude Code's documentation**, since
   there is no API that lists them; a level a model does not take is not shown.
-- FlashModel's effort choice lasts until the plugin reloads or the session
-  ends.
 - Terminal and desktop only; other surfaces keep `/m`.
 - Mods are an early-access API and may change between Claude Code releases.
   Developed against Claude Code 2.1.288.

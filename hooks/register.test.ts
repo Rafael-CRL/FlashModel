@@ -9,15 +9,21 @@ const ID: Record<string, string> = {
   fable: 'claude-fable-5-1',
 }
 
-type World = { model: string; models: string[]; efforts: string[]; toasts: string[] }
+type World = {
+  model: string
+  models: string[]
+  efforts: string[]
+  toasts: string[]
+  settings: any
+  }
 
 function world(on: any, start: string, { refuse = '', settings = {} as object } = {}): World {
-  const state: World = { model: ID[start] ?? start, models: [], efforts: [], toasts: [] }
+  const state: World = { model: ID[start] ?? start, models: [], efforts: [], toasts: [], settings }
   on('config.list', async () => ({
     value: [{ key: 'model', label: 'Model', kind: 'choice', value: 'x', options: OPTIONS }],
   }))
   on('session.model', async () => ({ value: state.model }))
-  on('settings.read', async () => ({ value: settings }))
+  on('settings.read', async () => ({ value: state.settings }))
   on('ui.toast', async (_$: any, e: any) => {
     state.toasts.push(e.text)
     return { value: undefined }
@@ -29,11 +35,24 @@ function world(on: any, start: string, { refuse = '', settings = {} as object } 
   })
   on('command.run', { command: 'effort' }, async (_$: any, e: any) => {
     state.efforts.push(e.args)
-    return { text: `Set effort level to ${e.args} (this session only)` }
+    if (e.args === refuse) return { text: `Not applied: CLAUDE_CODE_EFFORT_LEVEL=low overrides effort this session` }
+    return { text: `Set effort level to ${e.args} (saved as your default for new sessions)` }
   })
   on('classic.PostModelSwitch', async () => ({}))
+  on('classic.ConfigChange', async () => ({}))
   return state
 }
+
+// Claude Code's own report of a command, as the transcript keeps it. The harness has
+// nothing beneath the plugins to store the row, so its error after FlashModel read it is expected.
+const report = ($: any, text: string, agentId?: string) =>
+  $.session.append({
+    message: { type: 'user', role: 'user', content: [{ type: 'text', text: `<local-command-stdout>${text}</local-command-stdout>` }] },
+    door: 'command',
+    origin: { kind: 'composer' },
+    uuid: 'row',
+    ...(agentId === undefined ? {} : { agentId }),
+  }).catch(() => undefined)
 
 async function m($: any, clock: any, args = '') {
   await $.command.run({ command: 'm', args })
@@ -83,7 +102,7 @@ describe('/m', () => {
     const s = world(on, 'sonnet')
     await m($, clock, 'opus high')
     expect(s.models).toEqual(['opus'])
-    expect(s.efforts).toEqual([]) // never /effort: it would save the level as a default
+    expect(s.efforts).toEqual(['high'])
     expect(s.toasts).toEqual(['Model → claude-opus-5-5 · high effort'])
   })
 
@@ -92,6 +111,7 @@ describe('/m', () => {
     const s = world(on, 'sonnet')
     await m($, clock, 'low')
     expect(s.models).toEqual([])
+    expect(s.efforts).toEqual(['low'])
     expect(s.toasts).toEqual(['Model → claude-sonnet-5-5 · low effort'])
   })
 
@@ -153,7 +173,7 @@ describe('the band', () => {
       await ui.press({ key: 'effort:up' })
       expect(await active(ui, level)).toBe(true)
     }
-    expect(s.efforts).toEqual([])
+    expect(s.efforts).toEqual(['high', 'xhigh', 'max'])
     // At the end the arrow dims and does nothing, but stays a Button so focus keeps its place.
     expect((await arrow('effort:up'))?.dimColor).toBe(true)
     await ui.press({ key: 'effort:up' })
@@ -187,22 +207,16 @@ describe('the band', () => {
     await ui.unmount()
   })
 
-  test('a chosen level a later model does not take is sent as the nearest one below', async ($, on) => {
+  test('effort presses run /effort, so Claude Code and the band agree', async ($, on) => {
     const s = world(on, 'opus')
-    const seen: (string | undefined)[] = []
-    on('turn.step', async function* (_$: any, e: any) {
-      seen.push(e.effort)
-      return { turnId: 't', index: 0, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
-    })
     const ui = await mount($)
-    for (let i = 0; i < 2; i++) await ui.press({ key: 'effort:up' }) // medium → xhigh
-    s.model = 'claude-sonnet-4-6'
-    for await (const _ of $.turn.step({ turnId: 't', index: 0, model: s.model, effort: 'high', messageCount: 1 })) void _
-    expect(seen).toEqual(['high'])
+    await ui.press({ key: 'effort:up' })
+    expect(s.efforts).toEqual(['high'])
+    expect(await active(ui, 'high')).toBe(true)
     await ui.unmount()
   })
 
-  test('a level pressed in the band rides on main-conversation requests only', async ($, on) => {
+  test('requests go out with the effort Claude Code chose', async ($, on) => {
     world(on, 'opus')
     const seen: (string | undefined)[] = []
     on('turn.step', async function* (_$: any, e: any) {
@@ -211,28 +225,80 @@ describe('the band', () => {
     })
     const ui = await mount($)
     await ui.press({ key: 'effort:down' })
-    const step = (extra: object) =>
-      $.turn.step({ turnId: 't', index: 0, model: ID.opus, effort: 'medium', messageCount: 1, ...extra })
-    for await (const _ of step({})) void _
-    for await (const _ of step({ agentId: 'sub' })) void _
-    for await (const _ of step({ model: ID.haiku, effort: undefined })) void _
-    expect(seen).toEqual(['low', 'medium', undefined])
+    for await (const _ of $.turn.step({ turnId: 't', index: 0, model: ID.opus, effort: 'low', messageCount: 1 })) void _
+    expect(seen).toEqual(['low'])
+    await ui.unmount()
+  })
+
+  test('a refused /effort leaves the band as it was', async ($, on) => {
+    const s = world(on, 'opus', { refuse: 'high' })
+    const ui = await mount($)
+    await ui.press({ key: 'effort:up' })
+    expect(s.efforts).toEqual(['high'])
+    expect(await active(ui, 'medium')).toBe(true)
+    expect(s.toasts).toEqual(['Could not switch to high'])
+    await ui.unmount()
+  })
+
+  test('a saved level changed elsewhere shows when the session has no choice of its own', async ($, on) => {
+    const s = world(on, 'opus', { settings: { modelSettings: { 'claude-opus-5-5': { effortLevel: 'low' } } } })
+    const ui = await mount($)
+    expect(await active(ui, 'low')).toBe(true)
+    s.settings = { modelSettings: { 'claude-opus-5-5': { effortLevel: 'max' } } }
+    await $.classic.ConfigChange({ source: 'user_settings' } as any)
+    expect(await active(ui, 'max')).toBe(true)
+    await ui.unmount()
+  })
+
+  test('an effort chosen in the model picker shows, even when only for this session', async ($, on) => {
+    world(on, 'opus')
+    const ui = await mount($)
+    await report($, 'Set model to `Opus 5.5` for this session only with `max` effort')
+    expect(await active(ui, 'max')).toBe(true)
+    await ui.unmount()
+  })
+
+  test('leaving the picker without a change keeps the effort', async ($, on) => {
+    world(on, 'opus')
+    const ui = await mount($)
+    await report($, 'Kept model as Opus 5.5')
+    expect(await active(ui, 'medium')).toBe(true)
+    await ui.unmount()
+  })
+
+  test('output of other commands, and of subagents, is not taken for an effort report', async ($, on) => {
+    world(on, 'opus')
+    const ui = await mount($)
+    await report($, 'Compacted with high fidelity')
+    await report($, 'Set effort level to max (this session only)', 'sub')
+    expect(await active(ui, 'medium')).toBe(true)
+    await ui.unmount()
+  })
+
+  test('the original mix-up: a band level, then a picker save, shows the picker level', async ($, on) => {
+    world(on, 'opus')
+    const ui = await mount($)
+    await ui.press({ key: 'effort:down' })
+    expect(await active(ui, 'low')).toBe(true)
+    await report($, 'Set model to `Opus 5.5` and saved as your default for new sessions with `medium` effort')
+    expect(await active(ui, 'medium')).toBe(true)
+    await ui.unmount()
+  })
+
+  test('an unrelated settings change keeps the session effort', async ($, on) => {
+    const s = world(on, 'opus', { settings: { modelSettings: { 'claude-opus-5-5': { effortLevel: 'low' } } } })
+    const ui = await mount($)
+    await ui.press({ key: 'effort:up' })
+    s.settings = { ...s.settings, theme: 'light' }
+    await $.classic.ConfigChange({ source: 'user_settings' } as any)
+    expect(await active(ui, 'medium')).toBe(true)
     await ui.unmount()
   })
 
   test('the effort follows the person running /effort', async ($, on) => {
     world(on, 'sonnet')
     const ui = await mount($)
-    await $.command.run({ command: 'effort', args: 'max' })
-    expect(await active(ui, 'max')).toBe(true)
-    await ui.unmount()
-  })
-
-  test('the person running /effort takes over from the chosen effort', async ($, on) => {
-    world(on, 'opus')
-    const ui = await mount($)
-    await ui.press({ key: 'effort:down' })
-    await $.command.run({ command: 'effort', args: 'max' })
+    await report($, 'Set effort level to max (this session only): Maximum capability')
     expect(await active(ui, 'max')).toBe(true)
     await ui.unmount()
   })

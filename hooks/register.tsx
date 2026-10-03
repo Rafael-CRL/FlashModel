@@ -14,33 +14,53 @@ const VALUE_WIDTH = Math.max(...EFFORTS.map(l => l.length))
 const GAP = 4 // between the groups, and the room the band's own [-] mark takes
 
 // Session state, rebuilt on a reload. Claude Code has no getter for the effort in
-// force, so FlashModel follows it: the last /effort run, and what each request sent.
-// /effort <level> saves the level as the model's default, so FlashModel never runs it:
-// its own choice rides on each main-conversation request instead, for this session only.
+// force, so FlashModel follows it: what each request sent, the last /effort level of
+// this session, the saved level, the model's default, in that order.
 const refused = new Set<string>() // models /model refused this session
 const sent = new Map<string, Effort>() // model id → effort its last main-loop request carried
-let chosen: Effort | 'auto' | undefined // the last /effort level this session
-let override: Effort | undefined // FlashModel's effort, until the person runs /effort
-let pending: string | undefined // the band segment being switched to
+let chosen: Effort | 'auto' | undefined // the session's effort, set by /effort or the picker
+let pending: string | undefined // what a band press is switching to
 
 async function modelRow($: EngineInterface) {
   return selectable((await $.config.list()).find(r => r.key === 'model')?.options)
 }
 
-// The effort in force for a model, always one of the levels it takes.
-async function effortOf($: EngineInterface, id: string): Promise<Effort | undefined> {
-  if (effortsOf(id).length === 0) return undefined
-  if (override !== undefined) return fitEffort(override, id)
-  const seen = sent.get(id)
-  if (seen !== undefined) return fitEffort(seen, id)
-  if (isEffort(chosen)) return fitEffort(chosen, id)
-  if (chosen === 'auto') return defaultEffort(id)
+async function savedEffort($: EngineInterface, id: string) {
   const settings = (await $.settings.read()) as {
     effortLevel?: unknown
     modelSettings?: Record<string, { effortLevel?: unknown }>
   }
-  const saved = settings.modelSettings?.[id]?.effortLevel ?? settings.effortLevel
-  return isEffort(saved) ? fitEffort(saved, id) : defaultEffort(id)
+  return settings.modelSettings?.[id]?.effortLevel ?? settings.effortLevel
+}
+
+// The effort in force for a model, always one of the levels it takes.
+async function effortOf($: EngineInterface, id: string): Promise<Effort | undefined> {
+  if (effortsOf(id).length === 0) return undefined
+  const seen = sent.get(id)
+  if (seen !== undefined) return fitEffort(seen, id)
+  if (isEffort(chosen)) return fitEffort(chosen, id)
+  if (chosen === 'auto') return defaultEffort(id)
+  const level = await savedEffort($, id)
+  return isEffort(level) ? fitEffort(level, id) : defaultEffort(id)
+}
+
+// What Claude Code reports after /model or /effort, the pickers and sliders included:
+// "Set effort level to high (…)", "Effort level set to auto", or the model picker's
+// "Set model to `Opus 5.5` for this session only with `max` effort".
+const REPORT = /^(?:<local-command-stdout>)?(?:Set model to|Set effort level|Effort level set)/
+const REPORTED = /(?:effort level (?:set )?to|with) `?(low|medium|high|xhigh|max|auto)\b/i
+
+function reportedEffort(text: string | undefined): Effort | 'auto' | undefined {
+  if (text === undefined || !REPORT.test(text)) return undefined
+  const level = text.match(REPORTED)?.[1]?.toLowerCase()
+  return isEffort(level) || level === 'auto' ? level : undefined
+}
+
+// Something may have changed the effort: forget what requests sent until the next one.
+function effortChanged($: EngineInterface, level?: Effort | 'auto') {
+  if (level !== undefined) chosen = level
+  sent.clear()
+  $.ui.invalidate('ui.render')
 }
 
 // Runs /model for each target until the session's model changes; true if it did.
@@ -56,10 +76,13 @@ async function switchModel($: EngineInterface, targets: string[], isCycle: boole
   return undefined
 }
 
-function switchEffort($: EngineInterface, level: Effort) {
-  override = level
-  $.ui.invalidate('ui.render')
-  return true
+// Runs /effort, as typing it does: in an interactive session Claude Code also saves
+// the level as the model's default. True once Claude Code reports it set.
+async function switchEffort($: EngineInterface, level: Effort) {
+  const { text } = await $.command.run({ command: 'effort', args: level })
+  const isSet = text === undefined || reportedEffort(text) === level
+  if (isSet) effortChanged($, level)
+  return isSet
 }
 
 // A band press: mark the segment pending, switch, redraw. The band is the confirmation.
@@ -85,28 +108,30 @@ export const register: Register = on => {
 
   // Any route that changes the model (the band, /m, /model, the picker) redraws the band.
   on('classic.PostModelSwitch', async ($, e, next) => {
-    $.ui.invalidate('ui.render')
+    effortChanged($)
     return next(e)
   })
 
-  // The person's own /effort; FlashModel's runs skip its own hooks and record themselves.
-  on('command.run', { command: 'effort' }, async ($, e, next) => {
-    const result = await next(e)
-    const level = (e.args ?? '').trim()
-    if (isEffort(level) || level === 'auto') chosen = level
-    if (level === '') chosen = undefined // the slider: settings say what it saved
-    override = undefined
-    sent.clear()
-    $.ui.invalidate('ui.render')
-    return result
+  // The person's own /model and /effort, the pickers and sliders included, report the
+  // effort they set in the transcript; take it up. FlashModel's own runs record themselves.
+  on('session.append', async ($, e, next) => {
+    if (e.door === 'command' && e.agentId === undefined) {
+      const blocks = e.message.content as readonly { type: string; text?: string }[]
+      const level = reportedEffort(blocks.map(b => b.text ?? '').join(''))
+      if (level !== undefined) effortChanged($, level)
+    }
+    return next(e)
   })
 
-  // Main-conversation requests carry FlashModel's effort where the model takes it;
-  // otherwise the effort a request carries is the ground truth, kept per model.
+  // A settings change, here or from another session, can move the saved level.
+  on('classic.ConfigChange', async ($, e, next) => {
+    effortChanged($)
+    return next(e)
+  })
+
+  // The effort each main-loop request carries is the ground truth; keep the last one.
   on('turn.step', async function* ($, e, next) {
-    if (e.agentId !== undefined || e.effort === undefined) return yield* next(e)
-    if (override !== undefined) return yield* next({ ...e, effort: fitEffort(override, e.model) })
-    if (isEffort(e.effort) && sent.get(e.model) !== e.effort) {
+    if (e.agentId === undefined && isEffort(e.effort) && sent.get(e.model) !== e.effort) {
       sent.set(e.model, e.effort)
       $.ui.invalidate('ui.render')
     }
@@ -131,7 +156,7 @@ export const register: Register = on => {
     $.clock.after(0, async () => {
       const now = queue.length > 0 ? await switchModel($, queue, !asked) : before
       if (now === undefined) return $.ui.toast(`Model unchanged: ${before}`)
-      if (level !== undefined) switchEffort($, level)
+      if (level !== undefined) await switchEffort($, level)
       const effort = await effortOf($, now)
       $.ui.toast(`Model → ${now}${effort ? ` · ${effort} effort` : ''}`)
       $.ui.invalidate('ui.render')
@@ -166,7 +191,7 @@ export const register: Register = on => {
         plain
         dimColor={to === undefined}
         label={label}
-        onPress={() => (to === undefined ? undefined : switchEffort($, to))}
+        onPress={() => (to === undefined ? undefined : press($, `effort:${to}`, () => switchEffort($, to)))}
       />
     )
 
@@ -188,7 +213,11 @@ export const register: Register = on => {
             <Box>
               {step('effort:down', DOWN, levels[at - 1])}
               <Box key="effort:value" width={VALUE_WIDTH} justifyContent="center">
-                <Text bold>{effort}</Text>
+                {pending?.startsWith('effort:') ? (
+                  <Text italic dimColor>{pending.slice('effort:'.length)}</Text>
+                ) : (
+                  <Text bold>{effort}</Text>
+                )}
               </Box>
               {step('effort:up', UP, levels[at + 1])}
             </Box>

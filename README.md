@@ -107,7 +107,8 @@ FlashModel also registers one command of its own, `/m`, described under
   network, processes or tools; run anything in the background; or send data
   anywhere.
 
-See also the [privacy policy](PRIVACY.md).
+See also the [privacy policy](PRIVACY.md). To report a security vulnerability,
+see [SECURITY.md](SECURITY.md).
 
 ## Known limitations
 

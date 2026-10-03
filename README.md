@@ -17,7 +17,7 @@ visible. `/m` remains as a keyboard fallback.
 ## Install
 
 ```sh
-claude plugin marketplace add <owner>/FlashModel   # or a local path
+claude plugin marketplace add Rafael-CRL/FlashModel   # or a local path
 claude plugin install flashmodel@flashmodel
 ```
 

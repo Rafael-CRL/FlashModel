@@ -19,16 +19,16 @@ export const register: Register = on => {
     const models = (row?.options ?? []).filter(o => !SKIP.test(o))
     if (models.length === 0) return { text: 'FlashModel: no models to cycle through.' }
 
-    const asked = e.args.trim()
-    const current = await $.session.model()
-    const at = models.findIndex(m => current.includes(m))
-    const target = asked || models[(at + 1) % models.length]
+    const before = await $.session.model()
+    const target = (e.args ?? '').trim() || models[(models.findIndex(m => before.includes(m)) + 1) % models.length]
 
-    // /model cannot run inside this hook (it would wait on its own turn): queue it.
+    // /model cannot run inside this hook (it would wait on this very command):
+    // queue it, then confirm with a toast once the session has switched.
     $.clock.after(0, async () => {
       await $.command.run({ command: 'model', args: target })
-      $.ui.toast(`Model → ${await $.session.model()}`)
+      const now = await $.session.model()
+      $.ui.toast(now === before ? `Model unchanged: ${now}` : `Model → ${target} (${now})`)
     })
-    return { text: `Switching to ${target}…` }
+    return {}
   })
 }

@@ -2,8 +2,22 @@
   "name": "flashmodel",
   "displayName": "FlashModel",
   "version": "0.1.0",
-  "description": "Cycle Claude models with one short command: /m",
-  "author": { "name": "Rafael Lobato" },
+  "description": "A compact model switcher above the prompt: click or press a key to switch Claude models, plus /m to cycle.",
+  "author": {
+    "name": "Rafael Lobato"
+  },
   "license": "MIT",
-  "keywords": ["model", "switch", "productivity"]
+  "keywords": [
+    "model",
+    "switch",
+    "productivity"
+  ],
+  "userConfig": {
+    "digitHotkeys": {
+      "type": "boolean",
+      "title": "Digit hotkeys",
+      "description": "Switch models with the number keys: a digit typed alone into an empty prompt, then a pause, presses that model. Off by default so a bare number still reaches Claude.",
+      "default": false
+    }
+  }
 }

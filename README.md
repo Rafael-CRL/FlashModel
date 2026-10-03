@@ -61,29 +61,56 @@ not fit, Effort moves to a second row.
   slider, or the model picker with Enter or `s`), the row follows, and the next
   request confirms it.
 
-### What is saved
+## Transparency and security
 
-Each switch runs Claude Code's own command, exactly as if you typed it:
-`/model <name>` for a model and `/effort <level>` for effort. In an interactive
-session, Claude Code saves that pick as your default for new sessions, the same
-as typing the command or pressing Enter in its picker (`max` effort is always
-for this session only). FlashModel writes no settings itself. For a
-this-session-only change, use the model picker's `s` key; the row follows it.
+### Slash commands FlashModel runs
 
-## Capabilities used
+FlashModel switches models and effort by running Claude Code's own slash
+commands, exactly as if you typed them. It runs these two and no others:
 
-Mod hooks `session.start`, `command.run` (`/m`), `ui.render` (the row above the
-prompt), and, to follow the model and effort in force: `classic.PostModelSwitch`,
-`classic.ConfigChange`, `session.append` (reads what `/model` and `/effort`
-report) and `turn.step` (reads the effort each request carries). `$` calls
-`command.register`, `command.run` (`/model` and `/effort` only), `config.list`,
-`session.model`, `settings.read`, `clock.after`, `ui.resolve`, `ui.invalidate`
-and `ui.toast`. FlashModel changes no messages or requests, uses no network,
-files, processes or tools, and runs nothing in the background.
+| Command | When FlashModel runs it | Side effects |
+| --- | --- | --- |
+| `/model <name>` | You click a model in the row; you run `/m` (it tries the next model and, if Claude Code refuses one, the one after, so a single `/m` can run `/model` more than once); you run `/m <model>` or `/m <model> <effort>` | Switches the session's model. **In an interactive session, Claude Code also saves it as your default model for new sessions** (`model` in `~/.claude/settings.json`); in a headless `claude -p` run it applies to this session only. Claude Code prints its usual "Set model to …" line in the transcript. |
+| `/effort <level>` | You click `‹` or `›` in the row; you run `/m <effort>` or `/m <model> <effort>` | Sets the session's effort. **In an interactive session, Claude Code also saves it as that model's default** (`modelSettings.<model>.effortLevel` in `~/.claude/settings.json`); `max` is always for this session only, and so is every level in a headless run. Claude Code prints its usual "Set effort level to …" line in the transcript. |
+
+Both run only after a click or a `/m` you typed, never on their own. While
+Claude is working, Claude Code holds the command until the turn ends. FlashModel
+writes no settings itself: anything saved is saved by these commands. For a
+change that lasts only this session, use the model picker's `s` key, and the
+row follows it.
+
+FlashModel also registers one command of its own, `/m`, described under
+[Usage](#usage).
+
+### Events FlashModel hooks
+
+| Event | What FlashModel reads | What it changes |
+| --- | --- | --- |
+| `session.start` | Nothing | Registers `/m`. Passes the event on unchanged. |
+| `command.run`, for `/m` only | The arguments you typed after `/m` | Answers `/m` itself. No other command is hooked. |
+| `ui.render`, for the band above the prompt only | Whether a survey holds the band, and its width | Draws the model and effort row; when a survey is showing, it leaves the band to the survey. No other part of the interface is touched. |
+| `classic.PostModelSwitch` | Nothing from the event | Redraws the row. Passes the event on unchanged and adds no context for Claude. |
+| `classic.ConfigChange` | Nothing from the event | Redraws the row, which re-reads the saved effort (see below). Passes the event on unchanged. |
+| `session.append` | Every row passes through this hook as the conversation stores it. FlashModel looks only at command output in the main conversation, for the "Set model to …" and "Set effort level …" lines that `/model` and `/effort` print, and takes the effort level from them. | Nothing: every row is passed on unchanged. Prompts, Claude's replies, tool calls and results, and subagent rows are not inspected. |
+| `turn.step` | The model id and effort level of each main-conversation request. Messages, system prompt and tools are not part of this event. | Nothing: every request is sent unchanged. |
+
+### Data it reads, and what it does not do
+
+- **Reads:** the session's model; the options of the `/config` Model row (the
+  list of models offered); and, from your merged settings, only the effort
+  fields `effortLevel` and `modelSettings.<model>.effortLevel`.
+- **Keeps:** the current effort level, the models Claude Code refused during
+  `/m` cycling, and which switch is pending, in memory only. Nothing is stored
+  on disk, and it is gone when the session ends or the plugin reloads.
+- **Does not:** change messages, prompts, the system prompt, tool descriptions
+  or tool calls, other hooks, or permissions; read or write files; use the
+  network, processes or tools; run anything in the background; or send data
+  anywhere.
 
 ## Known limitations
 
-- **Switches save a default, as Claude Code's commands do.** No command a mod
+- **Switches save a default, as Claude Code's commands do** (see [Slash
+  commands FlashModel runs](#slash-commands-flashmodel-runs)). No command a mod
   can run switches for this session only; that needs the picker's `s` key.
 - **No hotkeys.** Plugins cannot register shortcuts, and letter hotkeys
   collided between models and effort (`h` for Haiku and high). Use a click,

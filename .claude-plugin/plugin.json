@@ -13,5 +13,6 @@
     "model",
     "switch",
     "productivity"
-  ]
+  ],
+  "icon": "./.claude-plugin/icon.png"
 }

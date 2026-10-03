@@ -2,7 +2,7 @@
   "name": "flashmodel",
   "displayName": "FlashModel",
   "version": "0.1.0",
-  "description": "A compact model and effort switcher above the prompt: click to switch Claude models and effort, or /m to cycle.",
+  "description": "A compact visual model and effort switcher for Claude Code",
   "author": {
     "name": "Rafael Lobato"
   },

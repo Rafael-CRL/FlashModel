@@ -2,7 +2,7 @@
   "name": "flashmodel",
   "displayName": "FlashModel",
   "version": "0.1.0",
-  "description": "A compact model switcher above the prompt: click or press a key to switch Claude models, plus /m to cycle.",
+  "description": "A compact model and effort switcher above the prompt: click to switch Claude models and effort, or /m to cycle.",
   "author": {
     "name": "Rafael Lobato"
   },
@@ -11,13 +11,5 @@
     "model",
     "switch",
     "productivity"
-  ],
-  "userConfig": {
-    "digitHotkeys": {
-      "type": "boolean",
-      "title": "Digit hotkeys",
-      "description": "Switch models with the number keys: a digit typed alone into an empty prompt, then a pause, presses that model. Off by default so a bare number still reaches Claude.",
-      "default": false
-    }
-  }
+  ]
 }

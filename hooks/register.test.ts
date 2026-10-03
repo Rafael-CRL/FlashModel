@@ -1,110 +1,120 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 
-// The engine is stood in for: the Model row's options, the session's model and /model.
+// The engine is stood in for: the Model row, the session's model, settings, /model and /effort.
 const OPTIONS = ['default', 'sonnet', 'opus', 'haiku', 'fable', 'best', 'sonnet[1m]', 'opusplan']
-// Cycle order: smallest to largest, whatever order the engine lists them in.
-const CYCLE = ['haiku', 'sonnet', 'opus', 'fable']
+const ID: Record<string, string> = {
+  haiku: 'claude-haiku-4-5',
+  sonnet: 'claude-sonnet-5-5',
+  opus: 'claude-opus-5-5',
+  fable: 'claude-fable-5-1',
+}
 
-function world(on: any, start: string, refuse = '') {
-  const state = { model: `claude-${start}-9`, asked: [] as string[], toasts: [] as string[] }
+type World = { model: string; models: string[]; efforts: string[]; toasts: string[] }
+
+function world(on: any, start: string, { refuse = '', settings = {} as object } = {}): World {
+  const state: World = { model: ID[start] ?? start, models: [], efforts: [], toasts: [] }
   on('config.list', async () => ({
     value: [{ key: 'model', label: 'Model', kind: 'choice', value: 'x', options: OPTIONS }],
   }))
   on('session.model', async () => ({ value: state.model }))
+  on('settings.read', async () => ({ value: settings }))
   on('ui.toast', async (_$: any, e: any) => {
     state.toasts.push(e.text)
     return { value: undefined }
   })
   on('command.run', { command: 'model' }, async (_$: any, e: any) => {
-    state.asked.push(e.args)
-    if (e.args !== refuse) state.model = `claude-${e.args}-9`
+    state.models.push(e.args)
+    if (e.args !== refuse) state.model = ID[e.args] ?? e.args
     return {}
   })
+  on('command.run', { command: 'effort' }, async (_$: any, e: any) => {
+    state.efforts.push(e.args)
+    return { text: `Set effort level to ${e.args} (this session only)` }
+  })
+  on('classic.PostModelSwitch', async () => ({}))
   return state
 }
 
+async function m($: any, clock: any, args = '') {
+  await $.command.run({ command: 'm', args })
+  await clock.settle()
+}
+
 describe('/m', () => {
-  for (const [i, start] of CYCLE.entries()) {
-    test(`from ${start} it switches to ${CYCLE[(i + 1) % CYCLE.length]}`, async ($, on) => {
+  for (const [start, next] of [['haiku', 'sonnet'], ['sonnet', 'opus'], ['opus', 'haiku']]) {
+    test(`from ${start} it switches to ${next}`, async ($, on) => {
       const clock = mock.clock(on)
       const s = world(on, start)
-      await $.command.run({ command: 'm' })
-      await clock.settle()
-      expect(s.asked).toEqual([CYCLE[(i + 1) % CYCLE.length]])
+      await m($, clock)
+      expect(s.models).toEqual([next])
     })
   }
 
-  test('shows the new model in a toast', async ($, on) => {
+  test('confirms the new model and its effort in a toast', async ($, on) => {
     const clock = mock.clock(on)
-    const s = world(on, 'sonnet')
-    await $.command.run({ command: 'm' })
-    await clock.settle()
-    expect(s.toasts).toEqual(['Model → opus (claude-opus-9)'])
+    const s = world(on, 'haiku')
+    await m($, clock)
+    expect(s.toasts).toEqual(['Model → claude-sonnet-5-5 · medium effort'])
   })
 
-  test('repeated presses walk the whole list and return to the start', async ($, on) => {
+  test('repeated presses cycle Haiku, Sonnet, Opus and never reach Fable', async ($, on) => {
     const clock = mock.clock(on)
-    const s = world(on, 'sonnet')
-    for (let i = 0; i < CYCLE.length + 1; i++) {
-      await $.command.run({ command: 'm' })
-      await clock.settle()
-    }
-    expect(s.asked).toEqual(['opus', 'fable', 'haiku', 'sonnet', 'opus'])
-    expect(s.toasts).toHaveLength(5)
-  })
-
-  test('never lands on default, best, opusplan or a 1M variant', async ($, on) => {
-    const clock = mock.clock(on)
-    const s = world(on, 'fable')
-    for (let i = 0; i < 12; i++) {
-      await $.command.run({ command: 'm' })
-      await clock.settle()
-    }
-    expect(s.asked.every(m => CYCLE.includes(m))).toBe(true)
+    const s = world(on, 'opus')
+    for (let i = 0; i < 6; i++) await m($, clock)
+    expect(s.models).toEqual(['haiku', 'sonnet', 'opus', 'haiku', 'sonnet', 'opus'])
   })
 
   test('an unrecognised current model moves to the first entry', async ($, on) => {
     const clock = mock.clock(on)
-    const s = world(on, 'mystery')
-    await $.command.run({ command: 'm' })
-    await clock.settle()
-    expect(s.asked).toEqual(['haiku'])
+    const s = world(on, 'claude-mystery-1')
+    await m($, clock)
+    expect(s.models).toEqual(['haiku'])
   })
 
-  test('an explicit argument selects that model', async ($, on) => {
+  test('a model argument selects it, Fable included', async ($, on) => {
     const clock = mock.clock(on)
     const s = world(on, 'sonnet')
-    await $.command.run({ command: 'm', args: 'haiku' })
-    await clock.settle()
-    expect(s.asked).toEqual(['haiku'])
+    await m($, clock, 'fable')
+    expect(s.models).toEqual(['fable'])
+  })
+
+  test('a model and an effort switch both', async ($, on) => {
+    const clock = mock.clock(on)
+    const s = world(on, 'sonnet')
+    await m($, clock, 'opus high')
+    expect(s.models).toEqual(['opus'])
+    expect(s.efforts).toEqual(['high'])
+    expect(s.toasts).toEqual(['Model → claude-opus-5-5 · high effort'])
+  })
+
+  test('an effort alone leaves the model as it is', async ($, on) => {
+    const clock = mock.clock(on)
+    const s = world(on, 'sonnet')
+    await m($, clock, 'low')
+    expect(s.models).toEqual([])
+    expect(s.efforts).toEqual(['low'])
   })
 
   test('a refused model is skipped, now and on later presses', async ($, on) => {
     const clock = mock.clock(on)
-    const s = world(on, 'opus', 'fable')
-    await $.command.run({ command: 'm' })
-    await clock.settle()
-    expect(s.asked).toEqual(['fable', 'haiku'])
-    expect(s.toasts).toEqual(['Model → haiku (claude-haiku-9)'])
-
-    s.model = 'claude-opus-9'
-    s.asked.length = 0
-    await $.command.run({ command: 'm' })
-    await clock.settle()
-    expect(s.asked).toEqual(['haiku'])
+    const s = world(on, 'sonnet', { refuse: 'opus' })
+    await m($, clock)
+    expect(s.models).toEqual(['opus', 'haiku'])
+    s.model = ID.sonnet
+    s.models.length = 0
+    await m($, clock)
+    expect(s.models).toEqual(['haiku'])
   })
 
-  test('an unchanged model is reported, not announced as a switch', async ($, on) => {
+  test('a model that does not take is reported, not announced', async ($, on) => {
     const clock = mock.clock(on)
-    const s = world(on, 'sonnet')
-    on('command.run', { command: 'model' }, async () => ({}))
-    await $.command.run({ command: 'm', args: 'sonnet' })
-    await clock.settle()
-    expect(s.toasts[0]).toMatch(/^Model unchanged/)
+    const s = world(on, 'sonnet', { refuse: 'opus' })
+    await m($, clock, 'opus')
+    expect(s.toasts).toEqual(['Model unchanged: claude-sonnet-5-5'])
   })
 })
 
-describe('the model band', () => {
+describe('the band', () => {
   const PROPS = {
     hasSurvey: false,
     isWorking: false,
@@ -113,45 +123,93 @@ describe('the model band', () => {
     scroll: { offset: 0, bodyRows: 10 },
     view: {},
   }
+  const mount = ($: any, surface: 'terminal' | 'desktop' = 'terminal', props = PROPS) =>
+    $.ui.mount({ plugin: 'flashmodel', surface, component: 'AbovePrompt', props })
+  const buttons = async (ui: any) => (await ui.findAll({ type: 'Button' })).map((b: any) => b.text)
+  const active = async (ui: any, text: string) => (await ui.find({ type: 'Text', text }))?.props?.bold
 
   for (const surface of ['terminal', 'desktop'] as const) {
-    test(`${surface}: lists the models, marks the active one, switches on press`, async ($, on) => {
+    test(`${surface}: offers the other models and efforts, and switches the model on press`, async ($, on) => {
       const s = world(on, 'sonnet')
-      const ui = await $.ui.mount({ plugin: 'flashmodel', surface, component: 'AbovePrompt', props: PROPS })
-      const labels = (await ui.findAll({ type: 'Button' })).map(b => b.text)
-      expect(labels).toEqual(['Haiku', '● Sonnet', 'Opus', 'Fable'])
+      const ui = await mount($, surface)
+      expect(await buttons(ui)).toEqual(['Haiku', 'Opus', 'low', 'high', 'xhigh', 'max'])
+      expect(await active(ui, 'Sonnet')).toBe(true)
+      expect(await active(ui, 'medium')).toBe(true)
 
-      await ui.press({ key: 'opus' })
-      expect(s.asked).toEqual(['opus'])
-      expect(s.toasts).toEqual(['Model → opus (claude-opus-9)'])
+      await ui.press({ key: 'model:opus' })
+      expect(s.models).toEqual(['opus'])
+      expect(await buttons(ui)).toEqual(['Haiku', 'Sonnet', 'low', 'high', 'xhigh', 'max'])
       await ui.unmount()
     })
   }
 
-  test('redraws with the new active model after a switch', async ($, on) => {
-    world(on, 'sonnet')
-    on('classic.PostModelSwitch', async () => ({}))
-    const ui = await $.ui.mount({ plugin: 'flashmodel', surface: 'terminal', component: 'AbovePrompt', props: PROPS })
-    await ui.press({ key: 'haiku' })
-    await $.classic.PostModelSwitch({ from_model: 'x', to_model: 'claude-haiku-9', requested_model: 'haiku', source: 'picker', context_tokens: 0, is_cache_warm: false } as any)
-    const labels = (await ui.findAll({ type: 'Button' })).map(b => b.text)
-    expect(labels).toEqual(['● Haiku', 'Sonnet', 'Opus', 'Fable'])
+  test('switches the effort on press and marks it active', async ($, on) => {
+    const s = world(on, 'opus')
+    const ui = await mount($)
+    await ui.press({ key: 'effort:xhigh' })
+    expect(s.efforts).toEqual(['xhigh'])
+    expect(await active(ui, 'xhigh')).toBe(true)
+    expect(await buttons(ui)).toEqual(['Haiku', 'Sonnet', 'low', 'medium', 'high', 'max'])
     await ui.unmount()
   })
 
-  test('pressing the active model does nothing', async ($, on) => {
+  test('the effort follows the person running /effort', async ($, on) => {
+    world(on, 'sonnet')
+    const ui = await mount($)
+    await $.command.run({ command: 'effort', args: 'max' })
+    expect(await active(ui, 'max')).toBe(true)
+    await ui.unmount()
+  })
+
+  test('the effort follows what a request actually sent', async ($, on) => {
+    world(on, 'sonnet')
+    on('turn.step', async function* () {
+      return { turnId: 't', index: 0, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
+    })
+    const ui = await mount($)
+    const steps = $.turn.step({ turnId: 't', index: 0, model: ID.sonnet, effort: 'high', messageCount: 1 })
+    for await (const _ of steps) void _
+    expect(await active(ui, 'high')).toBe(true)
+    await ui.unmount()
+  })
+
+  test('a saved per-model effort is shown before any request', async ($, on) => {
+    world(on, 'opus', { settings: { modelSettings: { 'claude-opus-5-5': { effortLevel: 'high' } } } })
+    const ui = await mount($)
+    expect(await active(ui, 'high')).toBe(true)
+    await ui.unmount()
+  })
+
+  test('Haiku shows effort as not applicable', async ($, on) => {
+    world(on, 'haiku')
+    const ui = await mount($)
+    expect(await buttons(ui)).toEqual(['Sonnet', 'Opus'])
+    expect(await ui.find({ type: 'Text', text: 'Effort  n/a' })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test('redraws when the model changes elsewhere', async ($, on) => {
     const s = world(on, 'sonnet')
-    const ui = await $.ui.mount({ plugin: 'flashmodel', surface: 'terminal', component: 'AbovePrompt', props: PROPS })
-    await ui.press({ key: 'sonnet' })
-    expect(s.asked).toEqual([])
+    const ui = await mount($)
+    s.model = ID.haiku
+    await $.classic.PostModelSwitch({
+      from_model: ID.sonnet,
+      to_model: ID.haiku,
+      requested_model: 'haiku',
+      source: 'picker',
+      context_tokens: 0,
+    } as any)
+    expect(await active(ui, 'Haiku')).toBe(true)
     await ui.unmount()
   })
 
   test('leaves the band to a survey', async ($, on) => {
     world(on, 'sonnet')
-    on('ui.render', { component: 'AbovePrompt' }, async ($: any, e: any) => $.ui.resolve(e).Text({ children: ['the survey'] }))
-    const ui = await $.ui.mount({ plugin: 'flashmodel', surface: 'terminal', component: 'AbovePrompt', props: { ...PROPS, hasSurvey: true } })
-    expect(await ui.findAll({ type: 'Button' })).toEqual([])
+    on('ui.render', { component: 'AbovePrompt' }, async ($: any, e: any) =>
+      $.ui.resolve(e).Text({ children: ['the survey'] }),
+    )
+    const ui = await mount($, 'terminal', { ...PROPS, hasSurvey: true })
+    expect(await buttons(ui)).toEqual([])
     await ui.unmount()
   })
 })
